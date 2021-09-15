@@ -1,0 +1,16 @@
+body {
+  background-color: #411934;
+  margin: 0em;
+  padding: 0em;
+  font-family: "Roboto Condensed", sans-serif;
+}
+
+.nav-wrapper {
+  background-color: #eb6536;
+}
+
+#controls {
+  color: #f2f1f0;
+  background-color: #3a3a3ac4;
+  padding: 1em;
+}

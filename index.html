@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>WebGPU OBJ renderer</title>
+
+    <link href="css/style.css" rel="stylesheet" media="screen,projection" />
+    <script
+      src="https://kit.fontawesome.com/a076d05399.js"
+      crossorigin="anonymous"
+    ></script>
+    <link
+      href="https://fonts.googleapis.com/icon?family=Material+Icons"
+      rel="stylesheet"
+    />
+    <!--Import materialize.css-->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css"
+    />
+  </head>
+  <body>
+    <nav>
+      <div class="nav-wrapper z-depth-5">
+        <a href="" class="brand-logo" style="margin-left: 1em"
+          >WebGPU .obj Renderer</a
+        >
+        <ul id="nav-mobile" class="right hide-on-med-and-down">
+          <li>
+            <a href=""
+              >This application requires webgpu. Please use a webGPU supported
+              browser(like chrome canary) with required flags on.</a
+            >
+          </li>
+        </ul>
+      </div>
+    </nav>
+    <!-- The canvas to display our renderer output on -->
+    <div class="row">
+      <div class="col l9 m9 s9">
+        <canvas id="webgpu-canvas" width="960" height="720"></canvas>
+        <script src="js/renderer.js"></script>
+      </div>
+      <div class="col l3 m3 s3 center" id="controls">
+        <h4
+          class="z-depth-3"
+          style="border-radius: 0.3em; background-color: #eb6536"
+        >
+          Renderer Controls
+        </h4>
+        <p class="left-align">Model:</p>
+        <select
+          class="browser-default"
+          id="model-select"
+          onchange="loadSelection()"
+        >
+          <option value="" disabled selected>Choose your option</option>
+        </select>
+      </div>
+    </div>
+  </body>
+
+  <script src="https://code.jquery.com/jquery-2.1.1.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+  <script src="js/main.js"></script>
+</html>
