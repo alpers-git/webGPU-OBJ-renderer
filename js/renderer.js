@@ -1,8 +1,11 @@
+"use strict";
 var cur_mesh = {};
 
 window.onload = function () {
   document.getElementById("model-select").value = "box.obj";
   loadSelection("box.obj");
+
+  render();
 };
 
 document.addEventListener("DOMContentLoaded", function () {
@@ -40,7 +43,7 @@ function loadSelection(value) {
     .catch((e) => console.error("Failure:", e));
 }
 
-(async () => {
+async function render() {
   if (!navigator.gpu) {
     document
       .getElementById("webgpu-canvas")
@@ -60,30 +63,38 @@ function loadSelection(value) {
   var context = canvas.getContext("webgpu");
 
   var shaderCode = `
-    type float4 = vec4<f32>;
-    struct VertexInput {
-        [[location(0)]] position: float4;
-        [[location(1)]] color: float4;
-    };
+  type float4 = vec4<f32>;
+  struct VertexInput {
+      [[location(0)]] position: float4;
+      [[location(1)]] color: float4;
+  };
 
-    struct VertexOutput {
-        [[builtin(position)]] position: float4;
-        [[location(0)]] color: float4;
-    };
+  struct VertexOutput {
+      [[builtin(position)]] position: float4;
+      [[location(0)]] color: float4;
+  };
 
-    [[stage(vertex)]]
-    fn vertex_main(vert: VertexInput) -> VertexOutput {
-        var out: VertexOutput;
-        out.color = vert.color;
-        out.position = vert.position;
-        return out;
-    };
+  [[block]]
+  struct ViewParams {
+      view_proj: mat4x4<f32>;
+  };
 
-    [[stage(fragment)]]
-    fn fragment_main(in: VertexOutput) -> [[location(0)]] float4 {
-        return float4(in.color);
-    }
-    `;
+  [[group(0), binding(0)]]
+  var<uniform> view_params: ViewParams;
+
+  [[stage(vertex)]]
+  fn vertex_main(vert: VertexInput) -> VertexOutput {
+      var out: VertexOutput;
+      out.color = vert.color;
+      out.position = view_params.view_proj * vert.position;
+      return out;
+  };
+
+  [[stage(fragment)]]
+  fn fragment_main(in: VertexOutput) -> [[location(0)]] float4 {
+      return float4(in.color);
+  }
+  `;
 
   // Setup shader modules
   var shaderModule = device.createShaderModule({ code: shaderCode });
@@ -116,8 +127,6 @@ function loadSelection(value) {
     1, -1, 0, 1, 1, 0, 0, 1, -1, -1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1,
   ]);
   dataBuf.unmap();
-
-  console.log("vertices: ", cur_mesh.cur.vertices);
 
   // Vertex attribute state and shader stage
   var vertexState = {
@@ -156,8 +165,21 @@ function loadSelection(value) {
     targets: [{ format: swapChainFormat }],
   };
 
+  // Create bind group layout
+  var bindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.VERTEX,
+        buffer: { type: "uniform" },
+      },
+    ],
+  });
+
   // Create render pipeline
-  var layout = device.createPipelineLayout({ bindGroupLayouts: [] });
+  var layout = device.createPipelineLayout({
+    bindGroupLayouts: [bindGroupLayout],
+  });
 
   var renderPipeline = device.createRenderPipeline({
     layout: layout,
@@ -181,6 +203,48 @@ function loadSelection(value) {
     },
   };
 
+  // Create a buffer to store the view parameters
+  var viewParamsBuffer = device.createBuffer({
+    size: 16 * 4,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
+  var viewParamBG = device.createBindGroup({
+    layout: bindGroupLayout,
+    entries: [{ binding: 0, resource: { buffer: viewParamsBuffer } }],
+  });
+
+  var camera = new ArcballCamera([0, 0, 3], [0, 0, 0], [0, 1, 0], 0.5, [
+    canvas.width,
+    canvas.height,
+  ]);
+  var proj = mat4.perspective(
+    mat4.create(),
+    (50 * Math.PI) / 180.0,
+    canvas.width / canvas.height,
+    0.1,
+    100
+  );
+  var projView = mat4.create();
+
+  // Register mouse and touch listeners
+  var controller = new Controller();
+  controller.mousemove = function (prev, cur, evt) {
+    if (evt.buttons == 1) {
+      camera.rotate(prev, cur);
+    } else if (evt.buttons == 2) {
+      camera.pan([cur[0] - prev[0], prev[1] - cur[1]]);
+    }
+  };
+  controller.wheel = function (amt) {
+    camera.zoom(amt);
+  };
+  controller.pinch = controller.wheel;
+  controller.twoFingerDrag = function (drag) {
+    camera.pan(drag);
+  };
+  controller.registerForCanvas(canvas);
+
   // Not covered in the tutorial: track when the canvas is visible
   // on screen, and only render when it is visible.
   var canvasVisible = false;
@@ -198,15 +262,31 @@ function loadSelection(value) {
 
   var frame = function () {
     if (canvasVisible) {
+      // Update camera buffer
+      projView = mat4.mul(projView, proj, camera.camera);
+
+      var upload = device.createBuffer({
+        size: 16 * 4,
+        usage: GPUBufferUsage.COPY_SRC,
+        mappedAtCreation: true,
+      });
+      {
+        var map = new Float32Array(upload.getMappedRange());
+        map.set(projView);
+        upload.unmap();
+      }
+
       renderPassDesc.colorAttachments[0].view = context
         .getCurrentTexture()
         .createView();
 
       var commandEncoder = device.createCommandEncoder();
+      commandEncoder.copyBufferToBuffer(upload, 0, viewParamsBuffer, 0, 16 * 4);
 
       var renderPass = commandEncoder.beginRenderPass(renderPassDesc);
 
       renderPass.setPipeline(renderPipeline);
+      renderPass.setBindGroup(0, viewParamBG);
       renderPass.setVertexBuffer(0, dataBuf);
       renderPass.draw(3, 1, 0, 0);
 
@@ -216,4 +296,4 @@ function loadSelection(value) {
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
-})();
+}
