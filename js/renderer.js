@@ -1,9 +1,9 @@
 "use strict";
-var cur_mesh = {};
+var curMesh = {};
 
 window.onload = function () {
-  document.getElementById("model-select").value = "box.obj";
-  loadSelection("box.obj");
+  document.getElementById("model-select").value = "car.obj";
+  loadSelection("car.obj");
 
   render();
 };
@@ -37,7 +37,7 @@ function loadSelection(value) {
     },
   ])
     .then((data) => {
-      cur_mesh = data;
+      curMesh = data;
       console.log("success: ", data);
     })
     .catch((e) => console.error("Failure:", e));
@@ -64,9 +64,10 @@ async function render() {
 
   var shaderCode = `
   type float4 = vec4<f32>;
+  type float3 = vec3<f32>;
   struct VertexInput {
-      [[location(0)]] position: float4;
-      [[location(1)]] color: float4;
+      [[location(0)]] position: float3;
+      //[[location(1)]] color: float4;
   };
 
   struct VertexOutput {
@@ -85,14 +86,15 @@ async function render() {
   [[stage(vertex)]]
   fn vertex_main(vert: VertexInput) -> VertexOutput {
       var out: VertexOutput;
-      out.color = vert.color;
-      out.position = view_params.view_proj * vert.position;
+      out.color =  vec4<f32>(0.0, 0.0, 1.0, 1.0);
+      out.position = view_params.view_proj * vec4<f32>(vert.position, 1.0);
       return out;
   };
 
   [[stage(fragment)]]
   fn fragment_main(in: VertexOutput) -> [[location(0)]] float4 {
-      return float4(in.color);
+      //var light_dir = vec4<f32>(0.0,-1.0,0.0,1.0);
+      return float4(in.color /* *(light_dir * in.position)*/);
   }
   `;
 
@@ -117,16 +119,24 @@ async function render() {
   }
 
   // Specify vertex data
-  var dataBuf = device.createBuffer({
-    size: 3 * 2 * 4 * 4,
+  var vertexBuffer = device.createBuffer({
+    size: curMesh.cur.vertices.length * 4,
     usage: GPUBufferUsage.VERTEX,
     mappedAtCreation: true,
   });
-  // Interleaved positions and colors
-  new Float32Array(dataBuf.getMappedRange()).set([
-    1, -1, 0, 1, 1, 0, 0, 1, -1, -1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1,
-  ]);
-  dataBuf.unmap();
+  //positions
+  new Float32Array(vertexBuffer.getMappedRange()).set(curMesh.cur.vertices);
+  vertexBuffer.unmap();
+
+  // Specify index data
+  var indexBuffer = device.createBuffer({
+    size: curMesh.cur.indices.length * 4,
+    usage: GPUBufferUsage.INDEX,
+    mappedAtCreation: true,
+  });
+  //indices
+  new Uint32Array(indexBuffer.getMappedRange()).set(curMesh.cur.indices),
+    indexBuffer.unmap();
 
   // Vertex attribute state and shader stage
   var vertexState = {
@@ -134,10 +144,10 @@ async function render() {
     entryPoint: "vertex_main",
     buffers: [
       {
-        arrayStride: 2 * 4 * 4,
+        arrayStride: 4 * 3,
         attributes: [
-          { format: "float32x4", offset: 0, shaderLocation: 0 },
-          { format: "float32x4", offset: 4 * 4, shaderLocation: 1 },
+          { format: "float32x3", offset: 0, shaderLocation: 0 },
+          //{ format: "float32x4", offset: 4 * 4, shaderLocation: 1 },
         ],
       },
     ],
@@ -214,7 +224,7 @@ async function render() {
     entries: [{ binding: 0, resource: { buffer: viewParamsBuffer } }],
   });
 
-  var camera = new ArcballCamera([0, 0, 3], [0, 0, 0], [0, 1, 0], 0.5, [
+  var camera = new ArcballCamera([0, 0, -20], [0, 0, 0], [0, 1, 0], 0.5, [
     canvas.width,
     canvas.height,
   ]);
@@ -287,8 +297,9 @@ async function render() {
 
       renderPass.setPipeline(renderPipeline);
       renderPass.setBindGroup(0, viewParamBG);
-      renderPass.setVertexBuffer(0, dataBuf);
-      renderPass.draw(3, 1, 0, 0);
+      renderPass.setVertexBuffer(0, vertexBuffer);
+      renderPass.setIndexBuffer(indexBuffer, "uint32");
+      renderPass.drawIndexed(curMesh.cur.indices.length);
 
       renderPass.endPass();
       device.queue.submit([commandEncoder.finish()]);
