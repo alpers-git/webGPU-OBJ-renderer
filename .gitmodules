@@ -1,6 +1,3 @@
-[submodule "submodules/webgl-util"]
-	path = submodules/webgl-util
-	url = https://github.com/Twinklebear/webgl-util
 [submodule "js/gl-matrix"]
 	path = js/gl-matrix
 	url = https://github.com/toji/gl-matrix
