@@ -1,3 +1,10 @@
+var cur_mesh = {};
+
+window.onload = function () {
+  document.getElementById("model-select").value = "box.obj";
+  loadSelection("box.obj");
+};
+
 document.addEventListener("DOMContentLoaded", function () {
   $.getJSON("./models", (options) => {
     var elems = document.querySelectorAll("select");
@@ -11,12 +18,26 @@ document.addEventListener("DOMContentLoaded", function () {
   });
 });
 
-function loadSelection() {
-  //TODO
+function onModelSelect() {
+  //get selection
   var x = document.getElementById("model-select").value;
-  // load a resource
-  loader.load("./models/" + value);
-  console.log("./models/" + value);
+  loadSelection(x);
+}
+
+function loadSelection(value) {
+  //download
+  OBJ.downloadModels([
+    {
+      name: "cur",
+      obj: "models/" + value,
+      mtl: false,
+    },
+  ])
+    .then((data) => {
+      cur_mesh = data;
+      console.log("success: ", data);
+    })
+    .catch((e) => console.error("Failure:", e));
 }
 
 (async () => {
@@ -95,6 +116,8 @@ function loadSelection() {
     1, -1, 0, 1, 1, 0, 0, 1, -1, -1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1,
   ]);
   dataBuf.unmap();
+
+  console.log("vertices: ", cur_mesh.cur.vertices);
 
   // Vertex attribute state and shader stage
   var vertexState = {
