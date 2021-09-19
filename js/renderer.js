@@ -20,7 +20,6 @@ class Scene {
     ]);
   }
   loadSelection(value) {
-    webAPI.stop = true;
     //download
     OBJ.downloadModels([
       {
@@ -31,10 +30,9 @@ class Scene {
     ])
       .then((data) => {
         scene.curMesh = data;
-        console.log("success: ", scene);
+        //console.log("success: ", scene);
       })
       .catch((e) => console.error("Failure:", e));
-    webAPI.stop = false;
   }
 }
 
@@ -226,7 +224,7 @@ class RenderAPI {
     });
   }
 
-  initBuffers(mesh) {
+  createBuffers(mesh) {
     this.vertexBuffer = webAPI.device.createBuffer({
       size: mesh.vertices.length * 4,
       usage: GPUBufferUsage.VERTEX,
@@ -246,19 +244,23 @@ class RenderAPI {
     new Uint32Array(this.indexBuffer.getMappedRange()).set(mesh.indices),
       this.indexBuffer.unmap();
   }
+  destroyBuffers() {
+    if (typeof this.vertexBuffer === "undefined") destroy(this.vertexBuffer);
+    if (typeof this.indexBuffer === "undefined") destroy(this.indexBuffer);
+  }
 }
 
 async function init() {
   await webAPI.initDevice();
   await webAPI.compileShaderModules(document.getElementById("webgpu-canvas"));
-  webAPI.initBuffers(scene.curMesh.cur);
+  webAPI.createBuffers(scene.curMesh.cur);
 }
 
 window.onload = async function () {
   scene = new Scene(document.getElementById("webgpu-canvas"));
   webAPI = new RenderAPI();
-  document.getElementById("model-select").value = "box.obj";
-  await scene.loadSelection("box.obj");
+  //document.getElementById("model-select").value = "rabbit.obj";
+  await scene.loadSelection("utah_teapot.obj");
   await init();
   main();
 };
@@ -276,30 +278,20 @@ document.addEventListener("DOMContentLoaded", function () {
   });
 });
 
-function onModelSelect() {
+async function onModelSelect() {
   //get selection
+  webAPI.stop = true;
+  webAPI.destroyBuffers();
   var x = document.getElementById("model-select").value;
-  loadSelection(x);
+  await scene.loadSelection(x);
+  webAPI.createBuffers(scene.curMesh.cur);
+  webAPI.stop = false;
 }
-
-/*function loadSelection(value) {
-  //download
-  OBJ.downloadModels([
-    {
-      name: "cur",
-      obj: "models/" + value,
-      mtl: false,
-    },
-  ])
-    .then((data) => {
-      scene.curMesh = data;
-      console.log("success: ", scene);
-    })
-    .catch((e) => console.error("Failure:", e));
-}*/
 
 function drawFrame() {
   if (!webAPI.stop) {
+    webAPI.destroyBuffers();//todo
+    webAPI.createBuffers(scene.curMesh.cur);//todo
     // Update camera buffer
     scene.projView = mat4.mul(scene.projView, scene.proj, scene.camera.camera);
 
@@ -336,7 +328,6 @@ function drawFrame() {
     renderPass.setVertexBuffer(0, webAPI.vertexBuffer);
     renderPass.setIndexBuffer(webAPI.indexBuffer, "uint32");
     renderPass.drawIndexed(scene.curMesh.cur.indices.length);
-
     renderPass.endPass();
     webAPI.device.queue.submit([commandEncoder.finish()]);
   }
