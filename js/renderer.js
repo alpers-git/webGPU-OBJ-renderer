@@ -19,9 +19,9 @@ class Scene {
       canvas.height,
     ]);
   }
-  loadSelection(value) {
+  async loadSelection(value) {
     //download
-    OBJ.downloadModels([
+    await OBJ.downloadModels([
       {
         name: "cur",
         obj: "models/" + value,
@@ -30,7 +30,7 @@ class Scene {
     ])
       .then((data) => {
         scene.curMesh = data;
-        //console.log("success: ", scene);
+        console.log("success: ", scene);
       })
       .catch((e) => console.error("Failure:", e));
   }
@@ -83,7 +83,7 @@ class RenderAPI {
   [[stage(vertex)]]
   fn vertex_main(vert: VertexInput) -> VertexOutput {
       var out: VertexOutput;
-      out.color =  vec4<f32>(0.0, 0.0, 1.0, 1.0);
+      out.color =  vec4<f32>(0.6, 0.6, 0.7, 1.0);
       out.position = view_params.view_proj * vec4<f32>(vert.position, 1.0);
       return out;
   };
@@ -103,6 +103,7 @@ class RenderAPI {
     this.viewParamBG = {};
     this.vertexBuffer = {};
     this.indexBuffer = {};
+    this.indexCount = 0;
   }
   async initDevice() {
     this.adapter = await navigator.gpu.requestAdapter();
@@ -243,10 +244,18 @@ class RenderAPI {
     //indices
     new Uint32Array(this.indexBuffer.getMappedRange()).set(mesh.indices),
       this.indexBuffer.unmap();
+
+    this.indexCount = mesh.indices.length;
   }
   destroyBuffers() {
-    if (typeof this.vertexBuffer === "undefined") destroy(this.vertexBuffer);
-    if (typeof this.indexBuffer === "undefined") destroy(this.indexBuffer);
+    if (typeof this.vertexBuffer === "undefined") {
+      destroy(this.vertexBuffer);
+      this.vertex.buffer = {};
+    }
+    if (typeof this.indexBuffer === "undefined") {
+      destroy(this.indexBuffer);
+      this.indexBuffer = {};
+    }
   }
 }
 
@@ -284,14 +293,12 @@ async function onModelSelect() {
   webAPI.destroyBuffers();
   var x = document.getElementById("model-select").value;
   await scene.loadSelection(x);
-  webAPI.createBuffers(scene.curMesh.cur);
+  await webAPI.createBuffers(scene.curMesh.cur);
   webAPI.stop = false;
 }
 
 function drawFrame() {
   if (!webAPI.stop) {
-    webAPI.destroyBuffers();//todo
-    webAPI.createBuffers(scene.curMesh.cur);//todo
     // Update camera buffer
     scene.projView = mat4.mul(scene.projView, scene.proj, scene.camera.camera);
 
@@ -327,7 +334,9 @@ function drawFrame() {
     renderPass.setBindGroup(0, webAPI.viewParamBG);
     renderPass.setVertexBuffer(0, webAPI.vertexBuffer);
     renderPass.setIndexBuffer(webAPI.indexBuffer, "uint32");
-    renderPass.drawIndexed(scene.curMesh.cur.indices.length);
+    renderPass.drawIndexed(
+      /*scene.curMesh.cur.indices.length*/ webAPI.indexCount
+    );
     renderPass.endPass();
     webAPI.device.queue.submit([commandEncoder.finish()]);
   }
