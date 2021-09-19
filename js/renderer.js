@@ -20,6 +20,7 @@ class Scene {
     ]);
   }
   loadSelection(value) {
+    webAPI.stop = true;
     //download
     OBJ.downloadModels([
       {
@@ -33,6 +34,7 @@ class Scene {
         console.log("success: ", scene);
       })
       .catch((e) => console.error("Failure:", e));
+    webAPI.stop = false;
   }
 }
 
@@ -101,6 +103,8 @@ class RenderAPI {
     this.renderPipeline = {};
     this.viewParamsBuffer = {};
     this.viewParamBG = {};
+    this.vertexBuffer = {};
+    this.indexBuffer = {};
   }
   async initDevice() {
     this.adapter = await navigator.gpu.requestAdapter();
@@ -138,7 +142,12 @@ class RenderAPI {
     });
 
     this.renderPassDesc = {
-      colorAttachments: [{ view: undefined, loadValue: [0.9, 0.3, 0.3, 1] }],
+      colorAttachments: [
+        {
+          view: undefined,
+          loadValue: [0.325 / 1.3, 0.125 / 1.3, 0.26 / 1.3, 1],
+        },
+      ],
       depthStencilAttachment: {
         view: this.depthTexture.createView(),
         depthLoadValue: 1.0,
@@ -179,7 +188,7 @@ class RenderAPI {
     };
 
     // Create bind group layout
-    this.bindGroupLayout = console.log(this.device.createBindGroupLayout({
+    this.bindGroupLayout = this.device.createBindGroupLayout({
       entries: [
         {
           binding: 0,
@@ -187,17 +196,17 @@ class RenderAPI {
           buffer: { type: "uniform" },
         },
       ],
-    }));
+    });
 
     // Create render pipeline
     var layout = this.device.createPipelineLayout({
-      bindGroupLayouts: [bindGroupLayout],
+      bindGroupLayouts: [this.bindGroupLayout],
     });
 
     this.renderPipeline = this.device.createRenderPipeline({
       layout: layout,
-      vertex: vertexState,
-      fragment: fragmentState,
+      vertex: this.vertexState,
+      fragment: this.fragmentState,
       depthStencil: {
         format: this.depthFormat,
         depthWriteEnabled: true,
@@ -212,30 +221,30 @@ class RenderAPI {
     });
 
     this.viewParamBG = this.device.createBindGroup({
-      layout: bindGroupLayout,
-      entries: [{ binding: 0, resource: { buffer: viewParamsBuffer } }],
+      layout: this.bindGroupLayout,
+      entries: [{ binding: 0, resource: { buffer: this.viewParamsBuffer } }],
     });
   }
 
   initBuffers(mesh) {
-    var vertexBuffer = webAPI.device.createBuffer({
+    this.vertexBuffer = webAPI.device.createBuffer({
       size: mesh.vertices.length * 4,
       usage: GPUBufferUsage.VERTEX,
       mappedAtCreation: true,
     });
     //positions
-    new Float32Array(vertexBuffer.getMappedRange()).set(mesh.vertices);
-    vertexBuffer.unmap();
+    new Float32Array(this.vertexBuffer.getMappedRange()).set(mesh.vertices);
+    this.vertexBuffer.unmap();
 
     // Specify index data
-    var indexBuffer = webAPI.device.createBuffer({
+    this.indexBuffer = webAPI.device.createBuffer({
       size: mesh.indices.length * 4,
       usage: GPUBufferUsage.INDEX,
       mappedAtCreation: true,
     });
     //indices
-    new Uint32Array(indexBuffer.getMappedRange()).set(mesh.indices),
-      indexBuffer.unmap();
+    new Uint32Array(this.indexBuffer.getMappedRange()).set(mesh.indices),
+      this.indexBuffer.unmap();
   }
 }
 
@@ -292,7 +301,7 @@ function onModelSelect() {
 function drawFrame() {
   if (!webAPI.stop) {
     // Update camera buffer
-    scene.projView = mat4.mul(scene.projView, scene.proj, scene.camera);
+    scene.projView = mat4.mul(scene.projView, scene.proj, scene.camera.camera);
 
     var upload = webAPI.device.createBuffer({
       size: 16 * 4,
@@ -322,10 +331,10 @@ function drawFrame() {
 
     var renderPass = commandEncoder.beginRenderPass(webAPI.renderPassDesc);
 
-    renderPass.setPipeline(renderPipeline);
-    renderPass.setBindGroup(0, viewParamBG);
-    renderPass.setVertexBuffer(0, vertexBuffer);
-    renderPass.setIndexBuffer(indexBuffer, "uint32");
+    renderPass.setPipeline(webAPI.renderPipeline);
+    renderPass.setBindGroup(0, webAPI.viewParamBG);
+    renderPass.setVertexBuffer(0, webAPI.vertexBuffer);
+    renderPass.setIndexBuffer(webAPI.indexBuffer, "uint32");
     renderPass.drawIndexed(scene.curMesh.cur.indices.length);
 
     renderPass.endPass();
@@ -522,13 +531,13 @@ async function main() {
   var controller = new Controller();
   controller.mousemove = function (prev, cur, evt) {
     if (evt.buttons == 1) {
-      camera.rotate(prev, cur);
+      scene.camera.rotate(prev, cur);
     } else if (evt.buttons == 2) {
-      camera.pan([cur[0] - prev[0], prev[1] - cur[1]]);
+      scene.camera.pan([cur[0] - prev[0], prev[1] - cur[1]]);
     }
   };
   controller.wheel = function (amt) {
-    camera.zoom(amt);
+    scene.camera.zoom(amt);
   };
   controller.pinch = controller.wheel;
   controller.twoFingerDrag = function (drag) {
