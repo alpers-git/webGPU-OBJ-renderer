@@ -184,7 +184,7 @@ class RenderAPI {
       colorAttachments: [
         {
           view: undefined,
-          loadValue: [0.325 / 2.3, 0.125 / 2.3, 0.26 / 2.3, 1],
+          loadValue: [0.325 / 2.9, 0.125 / 2.3, 0.26 / 2.3, 1],
         },
       ],
       depthStencilAttachment: {

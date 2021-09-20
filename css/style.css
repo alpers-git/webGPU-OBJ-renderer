@@ -1,7 +1,5 @@
 body {
   background-color: #250d1e;
-  margin: 0em;
-  padding: 0em;
   font-family: "Roboto Condensed", sans-serif;
 }
 
@@ -12,5 +10,8 @@ body {
 #controls {
   color: #f2f1f0;
   background-color: #3a3a3ac4;
-  padding: 1em;
+}
+
+.row .col.s4 .col.s9 .col.s3 {
+  padding: 0;
 }
