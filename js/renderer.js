@@ -5,7 +5,6 @@ class Scene {
   constructor(canvas) {
     this.curMesh = { a: 1, b: 2 };
     this.model = mat4.create();
-    //this.view =
     this.proj = mat4.perspective(
       mat4.create(),
       (50 * Math.PI) / 180.0,
@@ -69,34 +68,70 @@ class RenderAPI {
   };
 
   struct VertexOutput {
-      [[builtin(position)]] position: float4;
+      [[builtin(position)]] w_position: float4;
       [[location(0)]] color: float4;
-      [[location(1)]] normal: float3;
+      [[location(1)]] w_normal: float3;
+      [[location(2)]] vert_pos: float3;
   };
 
   [[block]]
-  struct ViewParams {
-      view_proj: mat4x4<f32>;
+  struct Camera {
+    proj         : mat4x4<f32>;
+    view         : mat4x4<f32>;
+    inv_view     : mat4x4<f32>;
+    view_pos     : vec4<f32>;
   };
 
   [[group(0), binding(0)]]
-  var<uniform> view_params: ViewParams;
+  var<uniform> camera: Camera;
+
+  [[block]]
+  struct Light {
+      position: vec3<f32>;
+      color: vec3<f32>;
+  };
+  /*[[group(2), binding(0)]]
+  var<uniform> light: Light;*/
 
   [[stage(vertex)]]
   fn vertex_main(vert: VertexInput) -> VertexOutput {
       var out: VertexOutput;
-      out.color =  vec4<f32>(0.6, 0.6, 0.6, 1.0);
-      out.position = view_params.view_proj * vec4<f32>(vert.position, 1.0);
-      out.normal =  vert.normal;
+      out.color =  vec4<f32>(0.7, 0.7, 0.7, 1.0);
+      let vert_pos_4 = camera.view * vec4<f32>(vert.position, 1.0);
+
+      out.vert_pos = (vert_pos_4).xyz / vert_pos_4.w;
+      out.w_position = camera.proj * float4(out.vert_pos.xyz, 1.0);
+
+      out.w_normal = normalize( transpose(
+                      mat3x3<f32>(
+                        camera.inv_view[0].xyz,
+                        camera.inv_view[1].xyz,
+                        camera.inv_view[2].xyz)) * vert.normal ).xyz;
       return out;
   };
 
   [[stage(fragment)]]
   fn fragment_main(in: VertexOutput) -> [[location(0)]] float4 {
-      var light_dir = vec3<f32>(0.0, 1.0,0.0);
-      var res = float4(in.color  * max(dot(light_dir, in.normal),0.0));
-      res.w = 1.0;
-      return res;
+    var light: Light;
+    light.position = camera.view_pos.xyz;//float3(0.0,10.0,0.0);
+    light.color = vec3<f32>(1.0,1.0,1.0);
+
+    // We don't need (or want) much ambient light, so 0.1 is fine
+    let ambient_strength = 0.0;
+    let ambient_color = float3(0.4,0.2,0.45) * ambient_strength;
+
+    let light_dir = normalize(light.position - in.vert_pos.xyz);
+    let view_dir = normalize(camera.view_pos.xyz - in.vert_pos.xyz);
+    let half_dir = normalize(view_dir + light_dir);
+
+    let diffuse_strength = max(dot(in.w_normal, light_dir),0.0);
+    let diffuse_color = light.color * diffuse_strength;
+
+    let specular_strength = pow(max(dot(in.w_normal, half_dir), 0.0), 32.0);
+    let specular_color = specular_strength * light.color;
+
+    let res = float4((ambient_color + diffuse_color + specular_color) * in.color.xyz,1.0);
+    return res;
   }`;
 
     this.shaderModule = {};
@@ -104,8 +139,8 @@ class RenderAPI {
     this.fragmentState = {};
     this.bindGroupLayout = {};
     this.renderPipeline = {};
-    this.viewParamsBuffer = {};
-    this.viewParamBG = {};
+    this.cameraParamsBuffer = {};
+    this.cameraParamBG = {};
     this.vertexBuffer = {};
     this.indexBuffer = {};
     this.normalBuffer = {};
@@ -201,7 +236,7 @@ class RenderAPI {
       entries: [
         {
           binding: 0,
-          visibility: GPUShaderStage.VERTEX,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
           buffer: { type: "uniform" },
         },
       ],
@@ -224,14 +259,14 @@ class RenderAPI {
     });
 
     // Create a buffer to store the view parameters
-    this.viewParamsBuffer = this.device.createBuffer({
-      size: 16 * 4,
+    this.cameraParamsBuffer = this.device.createBuffer({
+      size: 52 * 4,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    this.viewParamBG = this.device.createBindGroup({
+    this.cameraParamBG = this.device.createBindGroup({
       layout: this.bindGroupLayout,
-      entries: [{ binding: 0, resource: { buffer: this.viewParamsBuffer } }],
+      entries: [{ binding: 0, resource: { buffer: this.cameraParamsBuffer } }],
     });
   }
 
@@ -331,15 +366,36 @@ function drawFrame() {
   if (!webAPI.stop) {
     // Update camera buffer
     scene.projView = mat4.mul(scene.projView, scene.proj, scene.camera.camera);
+    scene.camera.invCamera = mat4.invert(
+      scene.camera.invCamera,
+      scene.camera.camera
+    );
 
     var upload = webAPI.device.createBuffer({
-      size: 16 * 4,
+      size: 52 * 4,
       usage: GPUBufferUsage.COPY_SRC,
       mappedAtCreation: true,
     });
+
+    console.log(scene.camera.invCamera);
+    let v = vec4.create();
+    for (let i = 0; i < 3; i++) {
+      v[i] = scene.camera.invCamera[12 + i];
+      /*if (i < 3) {
+        v[i] = v[i] * v[3];
+      }*/
+    }
+    v[3] = 1;
     {
+      let data = [
+        ...scene.proj,
+        ...scene.camera.camera,
+        ...scene.camera.invCamera,
+        ...v,
+      ];
+      console.log(v);
       var map = new Float32Array(upload.getMappedRange());
-      map.set(scene.projView);
+      map.set(data);
       upload.unmap();
     }
 
@@ -353,21 +409,19 @@ function drawFrame() {
     commandEncoder.copyBufferToBuffer(
       upload,
       0,
-      webAPI.viewParamsBuffer,
+      webAPI.cameraParamsBuffer,
       0,
-      16 * 4
+      52 * 4
     );
 
     var renderPass = commandEncoder.beginRenderPass(webAPI.renderPassDesc);
 
     renderPass.setPipeline(webAPI.renderPipeline);
-    renderPass.setBindGroup(0, webAPI.viewParamBG);
+    renderPass.setBindGroup(0, webAPI.cameraParamBG);
     renderPass.setVertexBuffer(0, webAPI.vertexBuffer);
     renderPass.setVertexBuffer(1, webAPI.normalBuffer);
     renderPass.setIndexBuffer(webAPI.indexBuffer, "uint32");
-    renderPass.drawIndexed(
-      /*scene.curMesh.cur.indices.length*/ webAPI.indexCount
-    );
+    renderPass.drawIndexed(webAPI.indexCount);
     renderPass.endPass();
     webAPI.device.queue.submit([commandEncoder.finish()]);
   }
@@ -385,178 +439,9 @@ async function main() {
     return;
   }
 
-  // Get a GPU device to render with
-  /*webAPI.adapter = await navigator.gpu.requestAdapter();
-  webAPI.device = await webAPI.adapter.requestDevice();*/
-
   // Get a context to display our rendered image on the canvas
   var canvas = document.getElementById("webgpu-canvas");
   var context = canvas.getContext("webgpu");
-
-  /*var shaderCode = `
-  type float4 = vec4<f32>;
-  type float3 = vec3<f32>;
-  struct VertexInput {
-      [[location(0)]] position: float3;
-      //[[location(1)]] color: float4;
-  };
-
-  struct VertexOutput {
-      [[builtin(position)]] position: float4;
-      [[location(0)]] color: float4;
-  };
-
-  [[block]]
-  struct ViewParams {
-      view_proj: mat4x4<f32>;
-  };
-
-  [[group(0), binding(0)]]
-  var<uniform> view_params: ViewParams;
-
-  [[stage(vertex)]]
-  fn vertex_main(vert: VertexInput) -> VertexOutput {
-      var out: VertexOutput;
-      out.color =  vec4<f32>(0.0, 0.0, 1.0, 1.0);
-      out.position = view_params.view_proj * vec4<f32>(vert.position, 1.0);
-      return out;
-  };
-
-  [[stage(fragment)]]
-  fn fragment_main(in: VertexOutput) -> [[location(0)]] float4 {
-      //var light_dir = vec4<f32>(0.0,-1.0,0.0,1.0);
-      return float4(in.color  *(light_dir * in.position));
-  }
-  `;*/
-
-  // Setup shader modules
-  /*var shaderModule = webAPI.device.createShaderModule({ code: shaderCode });
-  // This API is only available in Chrome right now
-  if (shaderModule.compilationInfo) {
-    var compilationInfo = await shaderModule.compilationInfo();
-    if (compilationInfo.messages.length > 0) {
-      var hadError = false;
-      console.log("Shader compilation log:");
-      for (var i = 0; i < compilationInfo.messages.length; ++i) {
-        var msg = compilationInfo.messages[i];
-        console.log(`${msg.lineNum}:${msg.linePos} - ${msg.message}`);
-        hadError = hadError || msg.type == "error";
-      }
-      if (hadError) {
-        console.log("Shader failed to compile");
-        return;
-      }
-    }
-  }*/
-  // Specify vertex data
-  /*var vertexBuffer = webAPI.device.createBuffer({
-    size: scene.curMesh.cur.vertices.length * 4,
-    usage: GPUBufferUsage.VERTEX,
-    mappedAtCreation: true,
-  });
-  //positions
-  new Float32Array(vertexBuffer.getMappedRange()).set(
-    scene.curMesh.cur.vertices
-  );
-  vertexBuffer.unmap();
-
-  // Specify index data
-  var indexBuffer = webAPI.device.createBuffer({
-    size: scene.curMesh.cur.indices.length * 4,
-    usage: GPUBufferUsage.INDEX,
-    mappedAtCreation: true,
-  });
-  //indices
-  new Uint32Array(indexBuffer.getMappedRange()).set(scene.curMesh.cur.indices),
-    indexBuffer.unmap();*/
-
-  // Vertex attribute state and shader stage
-  /*var vertexState = {
-    module: webAPI.shaderModule,
-    entryPoint: "vertex_main",
-    buffers: [
-      {
-        arrayStride: 4 * 3,
-        attributes: [
-          { format: "float32x3", offset: 0, shaderLocation: 0 },
-          //{ format: "float32x4", offset: 4 * 4, shaderLocation: 1 },
-        ],
-      },
-    ],
-  };
-
-  // Setup render outputs
-  var swapChainFormat = "bgra8unorm";
-  context.configure({
-    device: webAPI.device,
-    format: swapChainFormat,
-    usage: GPUTextureUsage.RENDER_ATTACHMENT,
-  });*/
-
-  /*var depthFormat = "depth24plus-stencil8";
-  var depthTexture = webAPI.device.createTexture({
-    size: { width: canvas.width, height: canvas.height, depth: 1 },
-    format: depthFormat,
-    usage: GPUTextureUsage.RENDER_ATTACHMENT,
-  });*/
-
-  // Fragment output targets and shader stage
-  /*var fragmentState = {
-    module: webAPI.shaderModule,
-    entryPoint: "fragment_main",
-    targets: [{ format: swapChainFormat }],
-  };
-
-  // Create bind group layout
-  var bindGroupLayout = webAPI.device.createBindGroupLayout({
-    entries: [
-      {
-        binding: 0,
-        visibility: GPUShaderStage.VERTEX,
-        buffer: { type: "uniform" },
-      },
-    ],
-  });
-
-  // Create render pipeline
-  var layout = webAPI.device.createPipelineLayout({
-    bindGroupLayouts: [bindGroupLayout],
-  });
-
-  var renderPipeline = webAPI.device.createRenderPipeline({
-    layout: layout,
-    vertex: vertexState,
-    fragment: fragmentState,
-    depthStencil: {
-      format: webAPI.depthFormat,
-      depthWriteEnabled: true,
-      depthCompare: "less",
-    },
-  });
-
-  // Create a buffer to store the view parameters
-  var viewParamsBuffer = webAPI.device.createBuffer({
-    size: 16 * 4,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-  });
-
-  var viewParamBG = webAPI.device.createBindGroup({
-    layout: bindGroupLayout,
-    entries: [{ binding: 0, resource: { buffer: viewParamsBuffer } }],
-  });*/
-
-  /*var camera = new ArcballCamera([0, 0, -20], [0, 0, 0], [0, 1, 0], 0.5, [
-    canvas.width,
-    canvas.height,
-  ]);
-  scene.proj = mat4.perspective(
-    mat4.create(),
-    (50 * Math.PI) / 180.0,
-    canvas.width / canvas.height,
-    0.1,
-    100
-  );
-  scene.projView = mat4.create();*/
 
   // Register mouse and touch listeners
   var controller = new Controller();
