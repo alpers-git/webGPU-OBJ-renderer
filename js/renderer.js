@@ -114,7 +114,6 @@ class RenderAPI {
   async initDevice() {
     this.adapter = await navigator.gpu.requestAdapter();
     this.device = await this.adapter.requestDevice();
-    //while (this.device == null) {}
   }
 
   async compileShaderModules(canvas) {
@@ -150,7 +149,7 @@ class RenderAPI {
       colorAttachments: [
         {
           view: undefined,
-          loadValue: [0.325 / 1.3, 0.125 / 1.3, 0.26 / 1.3, 1],
+          loadValue: [0.325 / 2.3, 0.125 / 2.3, 0.26 / 2.3, 1],
         },
       ],
       depthStencilAttachment: {
@@ -236,36 +235,41 @@ class RenderAPI {
     });
   }
 
+  createBuffer(arr, usage) {
+    if (arr.constructor === Uint32Array || arr.constructor === Float32Array) {
+      //from: https://alain.xyz/blog/raw-webgpu
+      let desc = {
+        size: (arr.byteLength + 3) & ~3,
+        usage,
+        mappedAtCreation: true,
+      };
+      let buffer = this.device.createBuffer(desc);
+
+      const writeArray =
+        arr.constructor === Uint32Array
+          ? new Uint32Array(buffer.getMappedRange())
+          : new Float32Array(buffer.getMappedRange());
+      writeArray.set(arr);
+      buffer.unmap();
+      return buffer;
+    } else {
+      console.warn("Failed to create buffer: type mismatch", typeof arr);
+      return {};
+    }
+  }
+
   createBuffers(mesh) {
-    //positions
-    this.vertexBuffer = webAPI.device.createBuffer({
-      size: mesh.vertices.length * 4,
-      usage: GPUBufferUsage.VERTEX,
-      mappedAtCreation: true,
-    });
-    new Float32Array(this.vertexBuffer.getMappedRange()).set(mesh.vertices);
-    this.vertexBuffer.unmap();
+    //vertices
+    let tmp = new Float32Array(mesh.vertices);
+    this.vertexBuffer = this.createBuffer(tmp, GPUBufferUsage.VERTEX);
 
     //normals
-    this.normalBuffer = webAPI.device.createBuffer({
-      size: mesh.vertexNormals.length * 4,
-      usage: GPUBufferUsage.VERTEX,
-      mappedAtCreation: true,
-    });
-
-    new Float32Array(this.normalBuffer.getMappedRange()).set(
-      mesh.vertexNormals
-    );
-    this.normalBuffer.unmap();
+    tmp = new Float32Array(mesh.vertexNormals);
+    this.normalBuffer = this.createBuffer(tmp, GPUBufferUsage.VERTEX);
 
     //indices
-    this.indexBuffer = webAPI.device.createBuffer({
-      size: mesh.indices.length * 4,
-      usage: GPUBufferUsage.INDEX,
-      mappedAtCreation: true,
-    });
-    new Uint32Array(this.indexBuffer.getMappedRange()).set(mesh.indices),
-      this.indexBuffer.unmap();
+    tmp = new Uint32Array(mesh.indices);
+    this.indexBuffer = this.createBuffer(tmp, GPUBufferUsage.INDEX);
 
     this.indexCount = mesh.indices.length;
   }
