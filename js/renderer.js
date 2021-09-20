@@ -376,8 +376,6 @@ function drawFrame() {
       usage: GPUBufferUsage.COPY_SRC,
       mappedAtCreation: true,
     });
-
-    console.log(scene.camera.invCamera);
     let v = vec4.create();
     for (let i = 0; i < 3; i++) {
       v[i] = scene.camera.invCamera[12 + i];
@@ -393,7 +391,6 @@ function drawFrame() {
         ...scene.camera.invCamera,
         ...v,
       ];
-      console.log(v);
       var map = new Float32Array(upload.getMappedRange());
       map.set(data);
       upload.unmap();
