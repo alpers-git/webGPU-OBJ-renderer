@@ -62,14 +62,16 @@ class RenderAPI {
     this.shaderCode = `
   type float4 = vec4<f32>;
   type float3 = vec3<f32>;
+  type float2 = vec2<f32>;
   struct VertexInput {
       [[location(0)]] position: float3;
-      //[[location(1)]] color: float4;
+      [[location(1)]] normal: float3;
   };
 
   struct VertexOutput {
       [[builtin(position)]] position: float4;
       [[location(0)]] color: float4;
+      [[location(1)]] normal: float3;
   };
 
   [[block]]
@@ -83,15 +85,18 @@ class RenderAPI {
   [[stage(vertex)]]
   fn vertex_main(vert: VertexInput) -> VertexOutput {
       var out: VertexOutput;
-      out.color =  vec4<f32>(0.6, 0.6, 0.7, 1.0);
+      out.color =  vec4<f32>(0.6, 0.6, 0.6, 1.0);
       out.position = view_params.view_proj * vec4<f32>(vert.position, 1.0);
+      out.normal =  vert.normal;
       return out;
   };
 
   [[stage(fragment)]]
   fn fragment_main(in: VertexOutput) -> [[location(0)]] float4 {
-      //var light_dir = vec4<f32>(0.0,-1.0,0.0,1.0);
-      return float4(in.color /* *(light_dir * in.position)*/);
+      var light_dir = vec3<f32>(0.0, 1.0,0.0);
+      var res = float4(in.color  * max(dot(light_dir, in.normal),0.0));
+      res.w = 1.0;
+      return res;
   }`;
 
     this.shaderModule = {};
@@ -103,6 +108,7 @@ class RenderAPI {
     this.viewParamBG = {};
     this.vertexBuffer = {};
     this.indexBuffer = {};
+    this.normalBuffer = {};
     this.indexCount = 0;
   }
   async initDevice() {
@@ -164,8 +170,13 @@ class RenderAPI {
         {
           arrayStride: 4 * 3,
           attributes: [
-            { format: "float32x3", offset: 0, shaderLocation: 0 },
-            //{ format: "float32x4", offset: 4 * 4, shaderLocation: 1 },
+            { format: "float32x3", offset: 0, shaderLocation: 0 }, //position
+          ],
+        },
+        {
+          arrayStride: 4 * 3,
+          attributes: [
+            { format: "float32x3", offset: 0, shaderLocation: 1 }, //normal
           ],
         },
       ],
@@ -226,22 +237,33 @@ class RenderAPI {
   }
 
   createBuffers(mesh) {
+    //positions
     this.vertexBuffer = webAPI.device.createBuffer({
       size: mesh.vertices.length * 4,
       usage: GPUBufferUsage.VERTEX,
       mappedAtCreation: true,
     });
-    //positions
     new Float32Array(this.vertexBuffer.getMappedRange()).set(mesh.vertices);
     this.vertexBuffer.unmap();
 
-    // Specify index data
+    //normals
+    this.normalBuffer = webAPI.device.createBuffer({
+      size: mesh.vertexNormals.length * 4,
+      usage: GPUBufferUsage.VERTEX,
+      mappedAtCreation: true,
+    });
+
+    new Float32Array(this.normalBuffer.getMappedRange()).set(
+      mesh.vertexNormals
+    );
+    this.normalBuffer.unmap();
+
+    //indices
     this.indexBuffer = webAPI.device.createBuffer({
       size: mesh.indices.length * 4,
       usage: GPUBufferUsage.INDEX,
       mappedAtCreation: true,
     });
-    //indices
     new Uint32Array(this.indexBuffer.getMappedRange()).set(mesh.indices),
       this.indexBuffer.unmap();
 
@@ -251,6 +273,10 @@ class RenderAPI {
     if (typeof this.vertexBuffer === "undefined") {
       destroy(this.vertexBuffer);
       this.vertex.buffer = {};
+    }
+    if (typeof this.normalBuffer === "undefined") {
+      destroy(this.normalBuffer);
+      this.normalBuffer = {};
     }
     if (typeof this.indexBuffer === "undefined") {
       destroy(this.indexBuffer);
@@ -333,6 +359,7 @@ function drawFrame() {
     renderPass.setPipeline(webAPI.renderPipeline);
     renderPass.setBindGroup(0, webAPI.viewParamBG);
     renderPass.setVertexBuffer(0, webAPI.vertexBuffer);
+    renderPass.setVertexBuffer(1, webAPI.normalBuffer);
     renderPass.setIndexBuffer(webAPI.indexBuffer, "uint32");
     renderPass.drawIndexed(
       /*scene.curMesh.cur.indices.length*/ webAPI.indexCount
