@@ -60,17 +60,25 @@
             Renderer Controls
           </h4>
           <p class="left-align">Model:</p>
-          <select
-            class="browser-default"
-            id="model-select"
-            onchange="onModelSelect()"
-          >
-            <option value="" disabled selected>Choose your option</option>
-          </select>
+          <div class="row">
+            <div class="col l8 m8 s8 center">
+              <select
+                class="browser-default"
+                id="model-select"
+                onchange="onModelSelect()"
+              >
+                <option value="" disabled selected>Choose your option</option>
+              </select>
+            </div>
+            <div class="col l4 m4 s4 center">
+              <label for="colorpicker">color:</label>
+              <input type="color" id="ocolor-picker" value="#FFFFFF" />
+            </div>
+          </div>
           <div class="row">
             <div class="col l12 m12 s12 center">
               <p class="left-align">Light:</p>
-              <div class="col l6 m6 s6 center">
+              <div class="col l8 m8 s8 center">
                 <form action="#">
                   <p class="range-field">
                     x
@@ -86,10 +94,9 @@
                   </p>
                 </form>
               </div>
-              <div class="col l6 m6 s6 center">
-                <p>color</p>
-                <label for="colorpicker">Color Picker:</label>
-                <input type="color" id="colorpicker" value="#FFFFFF" />
+              <div class="col l4 m4 s4 center">
+                <label for="colorpicker">color:</label>
+                <input type="color" id="lcolor-picker" value="#FFFFFF" />
               </div>
             </div>
           </div>

@@ -17,6 +17,10 @@ class Scene {
       canvas.width,
       canvas.height,
     ]);
+    this.light = {
+      position: vec3.create(),
+      color: vec3.create(),
+    };
   }
   async loadSelection(value) {
     //download
@@ -87,16 +91,16 @@ class RenderAPI {
 
   [[block]]
   struct Light {
-      position: vec3<f32>;
-      color: vec3<f32>;
+      position: vec4<f32>;
+      color: vec4<f32>;
   };
-  /*[[group(2), binding(0)]]
-  var<uniform> light: Light;*/
+  [[group(1), binding(0)]]
+  var<uniform> light: Light;
 
   [[stage(vertex)]]
   fn vertex_main(vert: VertexInput) -> VertexOutput {
       var out: VertexOutput;
-      out.color =  vec4<f32>(0.7, 0.7, 0.7, 1.0);
+      out.color = float4(0.7, 0.7, 0.7, 1.0);
       let vert_pos_4 = camera.view * vec4<f32>(vert.position, 1.0);
 
       out.vert_pos = (vert_pos_4).xyz / vert_pos_4.w;
@@ -112,23 +116,19 @@ class RenderAPI {
 
   [[stage(fragment)]]
   fn fragment_main(in: VertexOutput) -> [[location(0)]] float4 {
-    var light: Light;
-    light.position = camera.view_pos.xyz;//float3(0.0,10.0,0.0);
-    light.color = vec3<f32>(1.0,1.0,1.0);
 
-    // We don't need (or want) much ambient light, so 0.1 is fine
-    let ambient_strength = 0.0;
+    let ambient_strength = 0.1;
     let ambient_color = float3(0.4,0.2,0.45) * ambient_strength;
 
-    let light_dir = normalize(light.position - in.vert_pos.xyz);
+    let light_dir = normalize(light.position.xyz - in.vert_pos.xyz);
     let view_dir = normalize(camera.view_pos.xyz - in.vert_pos.xyz);
     let half_dir = normalize(view_dir + light_dir);
 
     let diffuse_strength = max(dot(in.w_normal, light_dir),0.0);
-    let diffuse_color = light.color * diffuse_strength;
+    let diffuse_color = light.color.xyz * diffuse_strength;
 
     let specular_strength = pow(max(dot(in.w_normal, half_dir), 0.0), 32.0);
-    let specular_color = specular_strength * light.color;
+    let specular_color = specular_strength * light.color.xyz;
 
     let res = float4((ambient_color + diffuse_color + specular_color) * in.color.xyz,1.0);
     return res;
@@ -137,10 +137,13 @@ class RenderAPI {
     this.shaderModule = {};
     this.vertexState = {};
     this.fragmentState = {};
-    this.bindGroupLayout = {};
+    this.bindGroupLayoutCamera = {};
+    this.bindGroupLayoutLight = {};
     this.renderPipeline = {};
     this.cameraParamsBuffer = {};
+    this.lightParamsBuffer = {};
     this.cameraParamBG = {};
+    this.lightParamBG = {};
     this.vertexBuffer = {};
     this.indexBuffer = {};
     this.normalBuffer = {};
@@ -232,7 +235,7 @@ class RenderAPI {
     };
 
     // Create bind group layout
-    this.bindGroupLayout = this.device.createBindGroupLayout({
+    this.bindGroupLayoutCamera = this.device.createBindGroupLayout({
       entries: [
         {
           binding: 0,
@@ -241,10 +244,19 @@ class RenderAPI {
         },
       ],
     });
+    this.bindGroupLayoutLight = this.device.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.FRAGMENT,
+          buffer: { type: "uniform" },
+        },
+      ],
+    });
 
     // Create render pipeline
     var layout = this.device.createPipelineLayout({
-      bindGroupLayouts: [this.bindGroupLayout],
+      bindGroupLayouts: [this.bindGroupLayoutCamera, this.bindGroupLayoutLight],
     });
 
     this.renderPipeline = this.device.createRenderPipeline({
@@ -260,13 +272,23 @@ class RenderAPI {
 
     // Create a buffer to store the view parameters
     this.cameraParamsBuffer = this.device.createBuffer({
-      size: 52 * 4,
+      size: (16 * 3 + 4) * 4,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    //Do the same for light parameters
+    this.lightParamsBuffer = this.device.createBuffer({
+      size: 8 * 4,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
     this.cameraParamBG = this.device.createBindGroup({
-      layout: this.bindGroupLayout,
+      layout: this.bindGroupLayoutCamera,
       entries: [{ binding: 0, resource: { buffer: this.cameraParamsBuffer } }],
+    });
+    this.lightParamBG = this.device.createBindGroup({
+      layout: this.bindGroupLayoutLight,
+      entries: [{ binding: 0, resource: { buffer: this.lightParamsBuffer } }],
     });
   }
 
@@ -362,8 +384,47 @@ async function onModelSelect() {
   webAPI.stop = false;
 }
 
+function hex2rgbRatio(value) {
+  let r = 0,
+    g = 0,
+    b = 0;
+  if (value.length == 4) {
+    r = "0x" + value[1] + value[1];
+    g = "0x" + value[2] + value[2];
+    b = "0x" + value[3] + value[3];
+  } else if (value.length == 7) {
+    r = "0x" + value[1] + value[2];
+    g = "0x" + value[3] + value[4];
+    b = "0x" + value[5] + value[6];
+  }
+  r = +(r / 255).toFixed(1);
+  g = +(g / 255).toFixed(1);
+  b = +(b / 255).toFixed(1);
+  return new Float32Array([r, g, b]);
+}
+
 function drawFrame() {
   if (!webAPI.stop) {
+    //Update light
+    scene.light.position[0] = document.getElementById("lx").value;
+    scene.light.position[1] = document.getElementById("ly").value;
+    scene.light.position[2] = document.getElementById("lz").value;
+    scene.light.color = hex2rgbRatio(
+      document.getElementById("lcolor-picker").value
+    );
+    var uploadLight = webAPI.device.createBuffer({
+      size: 8 * 4,
+      usage: GPUBufferUsage.COPY_SRC,
+      mappedAtCreation: true,
+    });
+    {
+      let data = [...scene.light.position, 1, ...scene.light.color, 1];
+      var map = new Float32Array(uploadLight.getMappedRange());
+      map.set(data);
+      console.log(data);
+      uploadLight.unmap();
+    }
+
     // Update camera buffer
     scene.projView = mat4.mul(scene.projView, scene.proj, scene.camera.camera);
     scene.camera.invCamera = mat4.invert(
@@ -371,7 +432,7 @@ function drawFrame() {
       scene.camera.camera
     );
 
-    var upload = webAPI.device.createBuffer({
+    var uploadView = webAPI.device.createBuffer({
       size: 52 * 4,
       usage: GPUBufferUsage.COPY_SRC,
       mappedAtCreation: true,
@@ -391,9 +452,9 @@ function drawFrame() {
         ...scene.camera.invCamera,
         ...v,
       ];
-      var map = new Float32Array(upload.getMappedRange());
+      var map = new Float32Array(uploadView.getMappedRange());
       map.set(data);
-      upload.unmap();
+      uploadView.unmap();
     }
 
     var canvas = document.getElementById("webgpu-canvas");
@@ -404,17 +465,26 @@ function drawFrame() {
 
     var commandEncoder = webAPI.device.createCommandEncoder();
     commandEncoder.copyBufferToBuffer(
-      upload,
+      uploadView,
       0,
       webAPI.cameraParamsBuffer,
       0,
       52 * 4
     );
 
+    commandEncoder.copyBufferToBuffer(
+      uploadLight,
+      0,
+      webAPI.lightParamsBuffer,
+      0,
+      8 * 4
+    );
+
     var renderPass = commandEncoder.beginRenderPass(webAPI.renderPassDesc);
 
     renderPass.setPipeline(webAPI.renderPipeline);
     renderPass.setBindGroup(0, webAPI.cameraParamBG);
+    renderPass.setBindGroup(1, webAPI.lightParamBG);
     renderPass.setVertexBuffer(0, webAPI.vertexBuffer);
     renderPass.setVertexBuffer(1, webAPI.normalBuffer);
     renderPass.setIndexBuffer(webAPI.indexBuffer, "uint32");
