@@ -452,7 +452,11 @@ function drawFrame() {
       scene.camera.invCamera,
       scene.camera.camera
     );
-    scene.normalMat = mat3.normalFromMat4(scene.normalMat, scene.camera.camera);
+
+    scene.model = mat4.create()
+    scene.normalMat = mat4.create()
+    scene.normalMat = mat3.normalFromMat4(scene.normalMat, scene.camera.camera)
+    //scene.normalMat = mat4.invert(scene.normalMat, scene.normalMat);
     /*var tmpMat = mat3.create();
 
     console.log(scene.normalMat);
@@ -495,7 +499,6 @@ function drawFrame() {
       let data = [
         ...scene.proj,
         ...scene.camera.camera,
-        ...scene.normalMat, 
         ...v,
       ];
       var map = new Float32Array(uploadView.getMappedRange());
@@ -517,9 +520,25 @@ function drawFrame() {
       0,
       (16 * 3 + 4) * 4
     );
+    
+    var transforms = webAPI.device.createBuffer({
+      size: (16 * 3 + 4) * 4,
+      usage: GPUBufferUsage.COPY_SRC,
+      mappedAtCreation: true,
+    });
+
+    {
+      let data = [
+        ...scene.model,
+        ...scene.normalMat,
+      ];
+      var map = new Float32Array(transforms.getMappedRange());
+      map.set(data);
+      transforms.unmap();
+    }
 
     commandEncoder.copyBufferToBuffer(
-      uploadView,
+      transforms,
       0,
       webAPI.transformsParamsBuffer,
       0,
