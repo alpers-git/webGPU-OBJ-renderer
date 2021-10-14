@@ -5,6 +5,7 @@ class Scene {
   constructor(canvas) {
     this.curMesh = { a: 1, b: 2 };
     this.model = mat4.create();
+    this.normalMat = mat3.create();
     this.proj = mat4.perspective(
       mat4.create(),
       (50 * Math.PI) / 180.0,
@@ -86,8 +87,18 @@ class RenderAPI {
     view_pos     : vec4<f32>;
   };
 
+  [[block]]
+  struct Transforms {
+    model_mat    : mat4x4<f32>;
+    normal_mat   : mat3x3<f32>;
+  };
+
   [[group(0), binding(0)]]
   var<uniform> camera: Camera;
+
+  [[group(0), binding(1)]]
+  var<uniform> tr: Transforms;
+
 
   [[block]]
   struct Light {
@@ -106,11 +117,7 @@ class RenderAPI {
       out.vert_pos = (vert_pos_4).xyz / vert_pos_4.w;
       out.w_position = camera.proj * float4(out.vert_pos.xyz, 1.0);
 
-      out.w_normal = normalize( transpose(
-                      mat3x3<f32>(
-                        camera.inv_view[0].xyz,
-                        camera.inv_view[1].xyz,
-                        camera.inv_view[2].xyz)) * vert.normal ).xyz;
+      out.w_normal = normalize( tr.normal_mat * vert.normal ).xyz;
       return out;
   };
 
@@ -141,6 +148,7 @@ class RenderAPI {
     this.bindGroupLayoutLight = {};
     this.renderPipeline = {};
     this.cameraParamsBuffer = {};
+    this.transformsParamsBuffer = {};
     this.lightParamsBuffer = {};
     this.cameraParamBG = {};
     this.lightParamBG = {};
@@ -242,6 +250,11 @@ class RenderAPI {
           visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
           buffer: { type: "uniform" },
         },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.VERTEX,
+          buffer: { type: "uniform" },
+        },
       ],
     });
     this.bindGroupLayoutLight = this.device.createBindGroupLayout({
@@ -275,6 +288,11 @@ class RenderAPI {
       size: (16 * 3 + 4) * 4,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    // Buffer for model and normal matrices
+    this.transformsParamsBuffer = this.device.createBuffer({
+      size: (16 * 2) * 4,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
 
     //Do the same for light parameters
     this.lightParamsBuffer = this.device.createBuffer({
@@ -284,8 +302,11 @@ class RenderAPI {
 
     this.cameraParamBG = this.device.createBindGroup({
       layout: this.bindGroupLayoutCamera,
-      entries: [{ binding: 0, resource: { buffer: this.cameraParamsBuffer } }],
+      entries: [{ binding: 0, resource: { buffer: this.cameraParamsBuffer } },
+                { binding: 1, resource: { buffer: this.transformsParamsBuffer } }],
     });
+
+
     this.lightParamBG = this.device.createBindGroup({
       layout: this.bindGroupLayoutLight,
       entries: [{ binding: 0, resource: { buffer: this.lightParamsBuffer } }],
@@ -431,9 +452,34 @@ function drawFrame() {
       scene.camera.invCamera,
       scene.camera.camera
     );
+    scene.normalMat = mat3.normalFromMat4(scene.normalMat, scene.camera.camera);
+    /*var tmpMat = mat3.create();
+
+    console.log(scene.normalMat);
+
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+          tmpMat[ i * 3 + j ] = scene.normalMat[i * 4 + j]
+      }
+    }
+    console.log("aaa", tmpMat);
+
+    tmpMat = mat3.invert(tmpMat);
+    tmpMat = mat3.transpose(tmpMat);
+
+    console.log(tmpMat);
+
+    for (let i = 0; i < 4; i++) {
+      for (let j = 0; j < 4; j++) {
+        if(i > 3 || j > 3)
+          scene.normalMat[i * 4 + j] = 0
+        else
+          scene.normalMat[i * 4 + j] = tmpMat[ i * 3 + j ]
+      }
+    }*/
 
     var uploadView = webAPI.device.createBuffer({
-      size: 52 * 4,
+      size: (16 * 3 + 4) * 4,
       usage: GPUBufferUsage.COPY_SRC,
       mappedAtCreation: true,
     });
@@ -449,7 +495,7 @@ function drawFrame() {
       let data = [
         ...scene.proj,
         ...scene.camera.camera,
-        ...scene.camera.invCamera,
+        ...scene.normalMat, 
         ...v,
       ];
       var map = new Float32Array(uploadView.getMappedRange());
@@ -469,7 +515,15 @@ function drawFrame() {
       0,
       webAPI.cameraParamsBuffer,
       0,
-      52 * 4
+      (16 * 3 + 4) * 4
+    );
+
+    commandEncoder.copyBufferToBuffer(
+      uploadView,
+      0,
+      webAPI.transformsParamsBuffer,
+      0,
+      (16 * 2) * 4
     );
 
     commandEncoder.copyBufferToBuffer(
